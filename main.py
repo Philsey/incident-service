@@ -59,13 +59,18 @@ def get_nearest_responder(incident_type, lat, lon):
 
 def register_vehicle_in_dispatch(responder, incident_id):
     try:
-        requests.post(f"{DISPATCH_SERVICE_URL}/vehicles/register", json={
+        response = requests.post(f"{DISPATCH_SERVICE_URL}/vehicles/register", json={
             "unit_id": responder["id"],
             "unit_type": responder["unit_type"],
             "incident_id": str(incident_id),
             "latitude": responder["latitude"],
             "longitude": responder["longitude"]
         }, timeout=5)
+        if response.status_code == 400:
+            requests.put(f"{DISPATCH_SERVICE_URL}/vehicles/{responder['id']}/location", json={
+                "latitude": responder["latitude"],
+                "longitude": responder["longitude"]
+            }, timeout=5)
     except Exception as e:
         print(f"Could not register vehicle in dispatch: {e}")
 
