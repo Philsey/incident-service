@@ -6,6 +6,11 @@ from models import Incident
 from schemas import IncidentCreate, IncidentResponse, StatusUpdate, AssignUpdate
 from typing import List
 import math
+import requests
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 Base.metadata.create_all(bind=engine)
 
@@ -18,14 +23,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Hardcoded responders for testing
+DISPATCH_SERVICE_URL = os.getenv("DISPATCH_SERVICE_URL", "https://dispatch-service-vh62.onrender.com")
+
 RESPONDERS = [
-    {"id": "police-1", "name": "Accra Central Police", "type": "police", "latitude": 5.5502, "longitude": -0.2174, "available": True},
-    {"id": "police-2", "name": "Lapaz Police Station", "type": "police", "latitude": 5.6037, "longitude": -0.2466, "available": True},
-    {"id": "fire-1", "name": "Accra Fire Service", "type": "fire", "latitude": 5.5481, "longitude": -0.2090, "available": True},
-    {"id": "fire-2", "name": "Tema Fire Service", "type": "fire", "latitude": 5.6698, "longitude": -0.0166, "available": True},
-    {"id": "ambulance-1", "name": "Korle Bu Ambulance", "type": "ambulance", "latitude": 5.5364, "longitude": -0.2279, "available": True},
-    {"id": "ambulance-2", "name": "37 Military Hospital Ambulance", "type": "ambulance", "latitude": 5.5731, "longitude": -0.1761, "available": True},
+    {"id": "police-1", "name": "Accra Central Police", "type": "police", "unit_type": "police_vehicle", "latitude": 5.5502, "longitude": -0.2174, "available": True},
+    {"id": "police-2", "name": "Lapaz Police Station", "type": "police", "unit_type": "police_vehicle", "latitude": 5.6037, "longitude": -0.2466, "available": True},
+    {"id": "fire-1", "name": "Accra Fire Service", "type": "fire", "unit_type": "fire_truck", "latitude": 5.5481, "longitude": -0.2090, "available": True},
+    {"id": "fire-2", "name": "Tema Fire Service", "type": "fire", "unit_type": "fire_truck", "latitude": 5.6698, "longitude": -0.0166, "available": True},
+    {"id": "ambulance-1", "name": "Korle Bu Ambulance", "type": "ambulance", "unit_type": "ambulance", "latitude": 5.5364, "longitude": -0.2279, "available": True},
+    {"id": "ambulance-2", "name": "37 Military Hospital Ambulance", "type": "ambulance", "unit_type": "ambulance", "latitude": 5.5731, "longitude": -0.1761, "available": True},
 ]
 
 def calculate_distance(lat1, lon1, lat2, lon2):
@@ -51,6 +57,18 @@ def get_nearest_responder(incident_type, lat, lon):
     nearest = min(available, key=lambda r: calculate_distance(lat, lon, r["latitude"], r["longitude"]))
     return nearest
 
+def register_vehicle_in_dispatch(responder, incident_id):
+    try:
+        requests.post(f"{DISPATCH_SERVICE_URL}/vehicles/register", json={
+            "unit_id": responder["id"],
+            "unit_type": responder["unit_type"],
+            "incident_id": str(incident_id),
+            "latitude": responder["latitude"],
+            "longitude": responder["longitude"]
+        }, timeout=5)
+    except Exception as e:
+        print(f"Could not register vehicle in dispatch: {e}")
+
 @app.post("/incidents", response_model=IncidentResponse)
 def create_incident(incident: IncidentCreate, db: Session = Depends(get_db)):
     responder = get_nearest_responder(incident.incident_type, incident.latitude, incident.longitude)
@@ -69,6 +87,10 @@ def create_incident(incident: IncidentCreate, db: Session = Depends(get_db)):
     db.add(new_incident)
     db.commit()
     db.refresh(new_incident)
+
+    if responder:
+        register_vehicle_in_dispatch(responder, new_incident.id)
+
     return new_incident
 
 @app.get("/incidents/open", response_model=List[IncidentResponse])
